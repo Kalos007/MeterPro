@@ -11,7 +11,7 @@ import java.util.*;
 
 @Service
 public class MeterService {
-    private static final Logger logger = LoggerFactory.getLogger(MeterService.class);
+    public static final Logger logger = LoggerFactory.getLogger(MeterService.class);
 
     private final Map<String, Map<String, Object>> meterData = new HashMap<>();
 

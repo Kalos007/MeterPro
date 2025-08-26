@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.example.meter.MeterService.logger;
+
 @RestController
 @RequestMapping("/api")
 public class MeterController {
@@ -142,5 +144,14 @@ public ResponseEntity<MeterResponse> status(@PathVariable String meterNumber) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
             .body(new MeterResponse("error", "Meter not found", 0));
 }
+
+    @PostMapping("/zeno/callback")
+    public ResponseEntity<String> handleCallback(@RequestBody String payload) {
+        logger.info("Received callback from Zeno: {}", payload);
+        // Parse JSON, check payment_status == COMPLETED
+        // If completed -> call addUnitsToMeter()
+        return ResponseEntity.ok("OK");
+    }
+
 
 }
