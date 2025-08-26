@@ -150,7 +150,7 @@ public ResponseEntity<MeterResponse> status(@PathVariable String meterNumber) {
         logger.info("Received callback from Zeno: {}", payload);
         // Parse JSON, check payment_status == COMPLETED
         // If completed -> call addUnitsToMeter()
-        return ResponseEntity.ok("OK");
+        return ResponseEntity.ok("payment completed");
     }
 
 

@@ -20,15 +20,17 @@ public class MeterService {
     private final UserReporsitory userRepository;
     private final ZenoApiService zenoApiService;
     private final ObjectMapper objectMapper;
+    private final PendingOrderRepository pendingOrderRepository;
 
     public MeterService(MeterRepository meterRepository, TokenRepository tokenRepository,
                         UserReporsitory userRepository, ZenoApiService zenoApiService,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper, PendingOrderRepository pendingOrderRepository) {
         this.meterRepository = meterRepository;
         this.tokenRepository = tokenRepository;
         this.userRepository = userRepository;
         this.zenoApiService = zenoApiService;
         this.objectMapper = objectMapper;
+        this.pendingOrderRepository = pendingOrderRepository;
     }
 
     public MeterResponse fetchUnits(String meterNumber) {
@@ -105,7 +107,7 @@ public class MeterService {
 //
 //        return new MeterResponse("success", "Units added to meter. Token: " + tokenCode, unitsToAdd);
 //    }
-private MeterResponse addUnitsToMeter(String meterNumber, double unitsToAdd, String tokenCode) {
+MeterResponse addUnitsToMeter(String meterNumber, double unitsToAdd, String tokenCode) {
     Meter meter = meterRepository.findByMeterNumber(meterNumber)
             .orElseGet(() -> {
                 Meter m = new Meter();
@@ -145,88 +147,42 @@ private MeterResponse addUnitsToMeter(String meterNumber, double unitsToAdd, Str
     }
 
     public MeterResponse processPayment(CreateOrderRequest request) {
-
-        String meterNumber = "0123456789"; // Your constant meter number
-        String buyerEmail = "kalos@gmail.com"; // Your constant email
+        String meterNumber = "0123456789";
+        String buyerEmail = "kalos@gmail.com";
         String buyerName = "kalos";
 
         request.setMeterNumber(meterNumber);
         request.setBuyerEmail(buyerEmail);
         request.setBuyerName(buyerName);
 
-        String buyerPhone = request.getBuyerPhone();
-        double amount = request.getAmount();
-
         Optional<User> userOpt = userRepository.findByMeterNumber(meterNumber);
         if (userOpt.isEmpty()) {
-            logger.error("Meter {} not registered to any user", meterNumber);
-            return new MeterResponse("error", "Meter not found for meter " + meterNumber, null);
+            return new MeterResponse("error", "Meter not found", null);
         }
 
         double unitsToAdd = request.getAmount() / 100.0;
         String tokenCode = String.format("%020d", new Random().nextLong(1000000000000L));
 
         try {
-            // Step 1: Create order
             String orderResponse = zenoApiService.createOrder(request);
-            logger.debug("Raw Zeno API createOrder response: {}", orderResponse);
-
             ObjectNode responseJson = objectMapper.readValue(orderResponse, ObjectNode.class);
-            String orderId = null;
+            String orderId = responseJson.has("order_id") ? responseJson.get("order_id").asText() : null;
 
-            if (responseJson.has("order_id") && !responseJson.get("order_id").isNull()) {
-                orderId = responseJson.get("order_id").asText();
-            } else if (responseJson.has("orderId") && !responseJson.get("orderId").isNull()) {
-                orderId = responseJson.get("orderId").asText();
-            } else {
-                logger.error("Zeno API response missing order_id or orderId: {}", orderResponse);
-                return new MeterResponse("error", "Failed to create order: Missing order_id or orderId in response", null);
+            if (orderId == null) {
+                return new MeterResponse("error", "Failed to create order", null);
             }
 
-            // Step 2: Check order status
-            OrderStatusResponse statusResponse = zenoApiService.checkOrderStatus(orderId);
-            logger.debug("Zeno API checkOrderStatus response: {}", statusResponse);
+            // Save to pending orders
+            PendingOrder pending = new PendingOrder();
+            pending.setOrderId(orderId);
+            pending.setMeterNumber(meterNumber);
+            pending.setUnits(unitsToAdd);
+            pending.setTokenCode(tokenCode);
+            pendingOrderRepository.save(pending);
 
-            String status = statusResponse.getStatus();
-            String paymentStatus = statusResponse.getPaymentStatus();
-
-            // Normalize for safety
-            status = status != null ? status.toUpperCase() : "";
-            paymentStatus = paymentStatus != null ? paymentStatus.toUpperCase() : "";
-
-            if ("SUCCESS".equals(status) && "COMPLETED".equals(paymentStatus)) {
-                // ✅ Payment successful – Add units
-                MeterResponse meterResponse = addUnitsToMeter(meterNumber, unitsToAdd, tokenCode);
-
-                PaymentToken dto = new PaymentToken();
-                dto.setCode(tokenCode);
-                dto.setMeterNumber(meterNumber);
-                dto.setAmount((double) request.getAmount());
-                dto.setUnits(unitsToAdd);
-                dto.setTimestamp(LocalDateTime.now().toString());
-
-                Token entity = convertDtoToEntity(dto);
-                tokenRepository.save(entity);
-
-                logger.info("Payment processed successfully for meter {}. Token: {}", meterNumber, tokenCode);
-                return meterResponse;
-
-            } else if ("SUCCESS".equals(status) && "PENDING".equals(paymentStatus)) {
-                // ⏳ Payment not yet completed
-                logger.warn("Payment for meter {} is still pending. Order ID: {}", meterNumber, orderId);
-
-                // OPTIONAL: save to a pending_orders table here for scheduled polling
-
-                return new MeterResponse("pending", "Payment is still pending. Please wait for confirmation.", null);
-
-            } else {
-                // ❌ Payment failed or unknown status
-                logger.error("Payment failed for meter {}. Status: {}, PaymentStatus: {}", meterNumber, status, paymentStatus);
-                return new MeterResponse("error", "Payment failed: " + statusResponse.getMessage(), null);
-            }
+            return new MeterResponse("pending", "Payment is in progress. You will receive units once completed.", null);
 
         } catch (Exception e) {
-            logger.error("Error processing payment for meter {}: {}", meterNumber, e.getMessage(), e);
             return new MeterResponse("error", "Payment processing failed: " + e.getMessage(), null);
         }
     }
