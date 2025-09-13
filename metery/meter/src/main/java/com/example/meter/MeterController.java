@@ -57,7 +57,7 @@ public class MeterController {
                         new MeterResponse("error", "Invalid type value", null));
         }
     }
-
+// sending data to meter
     @GetMapping("/meter_number/{meterNumber}/status")
     public ResponseEntity<MeterResponse> fetchMeterStatus(@PathVariable String meterNumber) {
         Meter meter = meterRepository.findByMeterNumber(meterNumber)

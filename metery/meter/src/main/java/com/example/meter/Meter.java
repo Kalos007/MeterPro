@@ -10,9 +10,11 @@ import lombok.Setter;
 @Data
 @Getter
 @Setter
+  // allow null
 public class Meter {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+
     private Long id;
 
     @Column(name = "meter_number", nullable = false, unique = true)
